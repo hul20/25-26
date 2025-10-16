@@ -456,6 +456,7 @@ class OptimizerSGD:
         self.iterations += 1
 
 
+
 # ============================================================
 # EXAMPLE USAGE
 # ============================================================
@@ -563,3 +564,99 @@ if __name__ == "__main__":
     print("=" * 60)
     print(f"Test Accuracy: {test_accuracy*100:.2f}%")
     print("=" * 60)
+
+    # ============================================================
+    # COMPARISON: Momentum SGD vs Adagrad
+    # ============================================================
+    print("\n" + "=" * 60)
+    print("OPTIMIZER COMPARISON: Momentum SGD vs Adagrad")
+    print("=" * 60)
+
+    def build_model():
+        # Recreate fresh layers to avoid parameter sharing
+        l1 = Layer_Dense(4, 8, name="Hidden_Layer_1")
+        a1 = ActivationReLU()
+        l2 = Layer_Dense(8, num_classes, name="Output_Layer")
+        a2 = ActivationSoftmax()
+        return l1, a1, l2, a2
+
+    def train_with_optimizer(optimizer, epochs=500):
+        l1, a1, l2, a2 = build_model()
+        loss_fn = LossCategoricalCrossentropy()
+
+        loss_history = []
+        acc_history = []
+
+        for epoch in range(epochs):
+            if hasattr(optimizer, 'pre_update_params'):
+                optimizer.pre_update_params()
+
+            # forward
+            l1.forward(X_train)
+            a1.forward(l1.output)
+            l2.forward(a1.output)
+            a2.forward(l2.output)
+
+            loss = loss_fn.forward(a2.output, y_train_onehot)
+            preds = np.argmax(a2.output, axis=1)
+            acc = np.mean(preds == y_train)
+
+            loss_history.append(loss)
+            acc_history.append(acc)
+
+            # backward
+            loss_fn.backward(a2.output, y_train_onehot)
+            a2.backward(loss_fn.dinputs)
+            l2.backward(a2.dinputs)
+            a1.backward(l2.dinputs)
+            l1.backward(a1.dinputs)
+
+            # update
+            optimizer.update_params(l1)
+            optimizer.update_params(l2)
+
+            if hasattr(optimizer, 'post_update_params'):
+                optimizer.post_update_params()
+
+        return {
+            'optimizer': optimizer,
+            'loss_history': np.array(loss_history),
+            'acc_history': np.array(acc_history),
+            'final_accuracy': acc_history[-1],
+            'final_loss': loss_history[-1]
+        }
+
+    def detect_stabilization(loss_history, window=10, tol=1e-4):
+        """
+        Detect first epoch where moving average change falls below tol for given window.
+        """
+        if len(loss_history) < window * 2:
+            return len(loss_history)
+
+        # moving average differences
+        ma = np.convolve(loss_history, np.ones(window)/window, mode='valid')
+        diffs = np.abs(np.diff(ma))
+        for i, d in enumerate(diffs):
+            if d < tol:
+                # return epoch index in original space
+                return i + window
+        return len(loss_history)
+
+    # Configure optimizers to compare
+    opt_momentum = OptimizerSGD(learning_rate=0.1, decay=1e-3, momentum=0.9)
+    opt_adagrad = OptimizerSGD(learning_rate=0.1, decay=1e-3, momentum=0.0, adaptive='adagrad')
+
+    # Train both for 500 epochs (faster for comparison)
+    res_mom = train_with_optimizer(opt_momentum, epochs=500)
+    res_adag = train_with_optimizer(opt_adagrad, epochs=500)
+
+    stab_mom = detect_stabilization(res_mom['loss_history'])
+    stab_adag = detect_stabilization(res_adag['loss_history'])
+
+    # Display comparison
+    print("\nOptimizer      | Stabilize Epoch | Final Loss  | Final Acc (%)")
+    print("-----------------------------------------------------------")
+    print(f"Momentum SGD   | {stab_mom:14d} | {res_mom['final_loss']:.6f} | {res_mom['final_accuracy']*100:12.2f}")
+    print(f"Adagrad        | {stab_adag:14d} | {res_adag['final_loss']:.6f} | {res_adag['final_accuracy']*100:12.2f}")
+
+    print("\nComparison complete.")
