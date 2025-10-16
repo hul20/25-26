@@ -371,18 +371,89 @@ class OptimizerSGD:
     Updates weights using: w = w - learning_rate * gradient
     """
     
-    def __init__(self, learning_rate=0.01):
+    def __init__(self, learning_rate=0.01, decay=0.0, momentum=0.0, adaptive=None, epsilon=1e-7):
+        """
+        Optimizer supporting learning rate decay, momentum and adaptive gradient (Adagrad).
+
+        Parameters:
+            learning_rate: initial learning rate
+            decay: learning rate decay per epoch (0.0 means no decay)
+            momentum: momentum coefficient (0.0 means vanilla SGD)
+            adaptive: None or 'adagrad' to enable Adagrad-style updates
+            epsilon: small value to avoid division by zero for adaptive methods
+        """
         self.learning_rate = learning_rate
-    
+        self.current_learning_rate = learning_rate
+        self.decay = decay
+        self.iterations = 0
+        self.momentum = momentum
+        self.adaptive = adaptive
+        self.epsilon = epsilon
+
+    def pre_update_params(self):
+        """
+        Call before forward/backward pass for this epoch/iteration.
+        Updates the current learning rate using decay as specified.
+        """
+        if self.decay:
+            # apply decay based on number of iterations so far
+            self.current_learning_rate = self.learning_rate / (1.0 + self.decay * self.iterations)
+
     def update_params(self, layer):
         """
-        Update layer parameters using SGD.
-        
-        Parameters:
-            layer: layer object with weights, biases, dweights, dbiases
+        Update layer parameters using configured method(s).
+
+        This supports vanilla SGD, momentum, and Adagrad.
         """
-        layer.weights -= self.learning_rate * layer.dweights
-        layer.biases -= self.learning_rate * layer.dbiases
+        # Ensure gradients exist
+        if not hasattr(layer, 'dweights') or not hasattr(layer, 'dbiases'):
+            raise AttributeError("Layer must have dweights and dbiases for optimizer to update parameters")
+
+        # ----- Momentum -----
+        if self.momentum:
+            # Create momentum buffers if not present
+            if not hasattr(layer, 'weight_momentums'):
+                layer.weight_momentums = np.zeros_like(layer.weights)
+                layer.bias_momentums = np.zeros_like(layer.biases)
+
+            # Update momentum with current gradients
+            layer.weight_momentums = self.momentum * layer.weight_momentums - self.current_learning_rate * layer.dweights
+            layer.bias_momentums = self.momentum * layer.bias_momentums - self.current_learning_rate * layer.dbiases
+
+            # Apply updates
+            layer.weights += layer.weight_momentums
+            layer.biases += layer.bias_momentums
+
+        else:
+            # ----- Adaptive gradient (Adagrad) -----
+            if self.adaptive == 'adagrad':
+                if not hasattr(layer, 'weight_cache'):
+                    layer.weight_cache = np.zeros_like(layer.weights)
+                    layer.bias_cache = np.zeros_like(layer.biases)
+
+                # Accumulate squared gradients
+                layer.weight_cache += layer.dweights ** 2
+                layer.bias_cache += layer.dbiases ** 2
+
+                # Compute adjusted learning rates per-parameter
+                weight_adjustment = (self.current_learning_rate / (np.sqrt(layer.weight_cache) + self.epsilon)) * layer.dweights
+                bias_adjustment = (self.current_learning_rate / (np.sqrt(layer.bias_cache) + self.epsilon)) * layer.dbiases
+
+                # Update parameters (note the minus since gradient descent)
+                layer.weights -= weight_adjustment
+                layer.biases -= bias_adjustment
+
+            else:
+                # ----- Vanilla SGD -----
+                layer.weights -= self.current_learning_rate * layer.dweights
+                layer.biases -= self.current_learning_rate * layer.dbiases
+
+    def post_update_params(self):
+        """
+        Call after parameters have been updated for an iteration.
+        Increments the internal iteration counter.
+        """
+        self.iterations += 1
 
 
 # ============================================================
@@ -431,6 +502,10 @@ if __name__ == "__main__":
     # Training loop
     epochs = 1000
     for epoch in range(epochs):
+        # ----- Optimizer pre-update (apply learning rate decay before FP/BP) -----
+        if hasattr(optimizer, 'pre_update_params'):
+            optimizer.pre_update_params()
+
         # ========== FORWARD PASS ==========
         # Layer 1
         layer1.forward(X)
@@ -462,6 +537,10 @@ if __name__ == "__main__":
         # ========== UPDATE WEIGHTS ==========
         optimizer.update_params(layer1)
         optimizer.update_params(layer2)
+
+        # ----- Optimizer post-update (increment iteration counter) -----
+        if hasattr(optimizer, 'post_update_params'):
+            optimizer.post_update_params()
     
     print("=" * 60)
     print("\n[INFO] Training Complete!\n")
