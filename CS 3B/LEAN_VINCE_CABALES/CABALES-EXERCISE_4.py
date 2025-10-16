@@ -646,17 +646,20 @@ if __name__ == "__main__":
     opt_momentum = OptimizerSGD(learning_rate=0.1, decay=1e-3, momentum=0.9)
     opt_adagrad = OptimizerSGD(learning_rate=0.1, decay=1e-3, momentum=0.0, adaptive='adagrad')
 
-    # Train both for 500 epochs (faster for comparison)
-    res_mom = train_with_optimizer(opt_momentum, epochs=500)
-    res_adag = train_with_optimizer(opt_adagrad, epochs=500)
+    # Train both for 1000 epochs
+    res_mom = train_with_optimizer(opt_momentum, epochs=1000)
+    res_adag = train_with_optimizer(opt_adagrad, epochs=1000)
 
     stab_mom = detect_stabilization(res_mom['loss_history'])
     stab_adag = detect_stabilization(res_adag['loss_history'])
 
     # Display comparison
-    print("\nOptimizer      | Stabilize Epoch | Final Loss  | Final Acc (%)")
+    print("=" * 60, "\n")
+    print("Optimizer      | Stabilize Epoch | Final Loss  | Final Acc (%)")
     print("-----------------------------------------------------------")
     print(f"Momentum SGD   | {stab_mom:14d} | {res_mom['final_loss']:.6f} | {res_mom['final_accuracy']*100:12.2f}")
     print(f"Adagrad        | {stab_adag:14d} | {res_adag['final_loss']:.6f} | {res_adag['final_accuracy']*100:12.2f}")
+    print("\n" + "=" * 60)
 
-    print("\nComparison complete.")
+    print("\n[INFO] Comparison complete.\n")
+    print("=" * 60)
