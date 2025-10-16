@@ -457,122 +457,109 @@ class OptimizerSGD:
 
 
 # ============================================================
-# EXAMPLE USAGE: XOR PROBLEM
+# EXAMPLE USAGE
 # ============================================================
 
 if __name__ == "__main__":
+    # Scikit-learn's Iris dataset for a small multi-class example
+    from sklearn.datasets import load_iris
+    from sklearn.model_selection import train_test_split
+    from sklearn.preprocessing import StandardScaler
+
     print("=" * 60)
-    print("NEURAL NETWORK TRAINING: XOR PROBLEM")
+    print("NEURAL NETWORK TRAINING: IRIS DATASET (3-CLASS)")
     print("=" * 60)
     print()
-    
-    # XOR dataset
-    X = np.array([[0, 0],
-                  [0, 1],
-                  [1, 0],
-                  [1, 1]])
-    
-    y = np.array([[0],
-                  [1],
-                  [1],
-                  [0]])
-    
-    print("[INFO] Dataset: XOR Problem")
-    print(f"       >> X.shape = {X.shape}, y.shape = {y.shape}")
-    print(f"       >> Inputs:\n{X}")
-    print(f"       >> Targets:\n{y}\n")
-    
-    # Create network layers
+
+    iris = load_iris()
+    X = iris.data  # shape (150, 4)
+    y = iris.target  # shape (150,) values in {0,1,2}
+
+    # Standardize features
+    scaler = StandardScaler()
+    X = scaler.fit_transform(X)
+
+    # Train/test split
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42, stratify=y)
+
+    # Convert labels to one-hot for training
+    num_classes = len(np.unique(y))
+    y_train_onehot = np.eye(num_classes)[y_train]
+
+    print(f"[INFO] Dataset: Iris | X.shape={X.shape}, y.shape={y.shape}")
+    print(f"       >> Train: X_train={X_train.shape}, y_train={y_train.shape}")
+    print(f"       >> Test : X_test={X_test.shape}, y_test={y_test.shape}\n")
+
+    # Build network: 4 -> 8 (ReLU) -> 3 (Softmax)
     print("[INFO] Building Neural Network Architecture...")
-    layer1 = Layer_Dense(2, 4, name="Hidden_Layer_1")
-    activation1 = ActivationTanh(name="Tanh_1")
-    
-    layer2 = Layer_Dense(4, 1, name="Output_Layer")
-    activation2 = ActivationSigmoid(name="Sigmoid_Output")
-    
-    # Loss function and optimizer
-    loss_function = LossBinaryCrossentropy()
-    optimizer = OptimizerSGD(learning_rate=0.5)
-    
+    layer1 = Layer_Dense(4, 8, name="Hidden_Layer_1")
+    activation1 = ActivationReLU(name="ReLU_1")
+
+    layer2 = Layer_Dense(8, num_classes, name="Output_Layer")
+    activation2 = ActivationSoftmax(name="Softmax_Output")
+
+    # Loss function and optimizer (categorical)
+    loss_function = LossCategoricalCrossentropy()
+    optimizer = OptimizerSGD(learning_rate=0.1, decay=1e-3, momentum=0.9)
+
     print(f"[INFO] Loss Function: {loss_function.name}")
-    print(f"[INFO] Optimizer: SGD (learning_rate={optimizer.learning_rate})")
+    print(f"[INFO] Optimizer: SGD (lr={optimizer.learning_rate}, decay={optimizer.decay}, momentum={optimizer.momentum})")
     print(f"[INFO] Training for 1000 epochs...\n")
     print("=" * 60)
-    
+
     # Training loop
     epochs = 1000
     for epoch in range(epochs):
-        # ----- Optimizer pre-update (apply learning rate decay before FP/BP) -----
+        # Pre-update (decay) before FP/BP
         if hasattr(optimizer, 'pre_update_params'):
             optimizer.pre_update_params()
 
-        # ========== FORWARD PASS ==========
-        # Layer 1
-        layer1.forward(X)
+        # Forward pass
+        layer1.forward(X_train)
         activation1.forward(layer1.output)
-        
-        # Layer 2
+
         layer2.forward(activation1.output)
         activation2.forward(layer2.output)
-        
-        # Calculate loss
-        loss = loss_function.forward(activation2.output, y)
-        
-        # Calculate accuracy for binary output
-        preds = (activation2.output >= 0.5).astype(int)
-        accuracy = np.mean(preds == y)
 
-        # Print progress every 100 epochs
+        # Loss
+        loss = loss_function.forward(activation2.output, y_train_onehot)
+
+        # Calculate categorical accuracy on training set
+        preds = np.argmax(activation2.output, axis=1)
+        accuracy = np.mean(preds == y_train)
+
         if epoch % 100 == 0 or epoch == epochs - 1:
-            print(f"Epoch {epoch:4d} | Loss: {loss:.6f} | Accuracy: {accuracy*100:.2f}%")
-        
-        # ========== BACKWARD PASS ==========
-        # Loss gradient
-        loss_function.backward(activation2.output, y)
-        
-        # Layer 2 backward
+            print(f"Epoch {epoch:4d} | Loss: {loss:.6f} | Train Accuracy: {accuracy*100:.2f}% | LR: {optimizer.current_learning_rate:.5f}")
+
+        # Backward pass
+        loss_function.backward(activation2.output, y_train_onehot)
         activation2.backward(loss_function.dinputs)
         layer2.backward(activation2.dinputs)
-        
-        # Layer 1 backward
+
         activation1.backward(layer2.dinputs)
         layer1.backward(activation1.dinputs)
-        
-        # ========== UPDATE WEIGHTS ==========
+
+        # Update params
         optimizer.update_params(layer1)
         optimizer.update_params(layer2)
 
-        # ----- Optimizer post-update (increment iteration counter) -----
         if hasattr(optimizer, 'post_update_params'):
             optimizer.post_update_params()
-    
+
     print("=" * 60)
     print("\n[INFO] Training Complete!\n")
-    
-    # ========== FINAL PREDICTIONS ==========
-    print("=" * 60)
-    print("FINAL PREDICTIONS")
-    print("=" * 60)
-    
-    # Forward pass for final predictions
-    layer1.forward(X)
+
+    # Evaluate on test set
+    layer1.forward(X_test)
     activation1.forward(layer1.output)
     layer2.forward(activation1.output)
     activation2.forward(layer2.output)
-    
-    predictions = activation2.output
-    
-    print("\nInput | Target | Prediction | Rounded")
-    print("-" * 45)
-    for i in range(len(X)):
-        pred_val = predictions[i][0]
-        rounded = 1 if pred_val >= 0.5 else 0
-        print(f"{X[i]} |   {y[i][0]}    |   {pred_val:.4f}   |    {rounded}")
-    
-    print("\n" + "=" * 60)
-    print("TRAINING SUMMARY")
+
+    test_preds = np.argmax(activation2.output, axis=1)
+    test_accuracy = np.mean(test_preds == y_test)
+
     print("=" * 60)
-    print(f"Final Loss: {loss:.6f}")
-    print(f"Total Epochs: {epochs}")
-    print(f"Learning Rate: {optimizer.learning_rate}")
+    print("TEST RESULTS")
+    print("=" * 60)
+    print(f"Test Accuracy: {test_accuracy*100:.2f}%")
     print("=" * 60)
