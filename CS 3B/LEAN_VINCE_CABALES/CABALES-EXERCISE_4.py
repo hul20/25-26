@@ -518,9 +518,13 @@ if __name__ == "__main__":
         # Calculate loss
         loss = loss_function.forward(activation2.output, y)
         
+        # Calculate accuracy for binary output
+        preds = (activation2.output >= 0.5).astype(int)
+        accuracy = np.mean(preds == y)
+
         # Print progress every 100 epochs
         if epoch % 100 == 0 or epoch == epochs - 1:
-            print(f"Epoch {epoch:4d} | Loss: {loss:.6f}")
+            print(f"Epoch {epoch:4d} | Loss: {loss:.6f} | Accuracy: {accuracy*100:.2f}%")
         
         # ========== BACKWARD PASS ==========
         # Loss gradient
